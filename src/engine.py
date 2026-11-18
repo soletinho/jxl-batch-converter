@@ -6,9 +6,16 @@ Wraps cjxl executable calls, handles conversions, options, and returns detailed 
 import time
 import subprocess
 import shutil
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Callable, List
+
+try:
+    from PIL import Image
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
 
 from src.downloader import ensure_cjxl
 
@@ -47,19 +54,21 @@ class JXLEngine:
         Build command arguments for cjxl.
         Format: cjxl INPUT OUTPUT [options]
         """
-        cmd = [str(self.cjxl_path), str(input_file), str(output_file), "--quiet"]
+        suffix = input_file.suffix.lower()
+        needs_stream = suffix in (".webp", ".bmp", ".tif", ".tiff")
+        input_target = "-" if needs_stream else str(input_file)
+
+        cmd = [str(self.cjxl_path), input_target, str(output_file), "--quiet"]
 
         # Effort
         cmd.extend(["-e", str(config.effort)])
-
-        suffix = input_file.suffix.lower()
 
         if config.quality_mode == "lossless":
             if suffix in (".jpg", ".jpeg"):
                 # Default for jpeg is lossless transcode (-d 0.0)
                 cmd.extend(["-d", "0.0"])
             else:
-                # Lossless for PNG, GIF, WebP
+                # Lossless for PNG, GIF, WebP, BMP
                 cmd.extend(["-d", "0.0"])
         else:
             # Custom quality (1-100)
@@ -118,6 +127,32 @@ class JXLEngine:
 
         cmd = self.build_command(input_file, output_file, config)
 
+        # Check if streaming through stdin is needed (e.g. for WebP, BMP, TIFF)
+        stdin_data = None
+        suffix = input_file.suffix.lower()
+        if suffix in (".webp", ".bmp", ".tif", ".tiff"):
+            if not HAS_PILLOW:
+                return ConversionResult(
+                    input_path=input_file,
+                    output_path=None,
+                    original_size=original_size,
+                    status="error",
+                    error_message="O formato WebP/BMP requer a biblioteca Pillow instalada (pip install pillow)."
+                )
+            try:
+                buf = io.BytesIO()
+                with Image.open(input_file) as im:
+                    im.save(buf, format="PNG")
+                stdin_data = buf.getvalue()
+            except Exception as exc:
+                return ConversionResult(
+                    input_path=input_file,
+                    output_path=None,
+                    original_size=original_size,
+                    status="error",
+                    error_message=f"Falha ao decodificar imagem: {exc}"
+                )
+
         start_time = time.perf_counter()
         try:
             # On Windows, prevent console window popup when launched from GUI
@@ -128,14 +163,15 @@ class JXLEngine:
 
             proc = subprocess.run(
                 cmd,
+                input=stdin_data,
                 capture_output=True,
-                text=True,
                 creationflags=creationflags
             )
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             if proc.returncode != 0:
-                err_msg = proc.stderr.strip() or f"Código de saída: {proc.returncode}"
+                stderr_str = proc.stderr.decode("utf-8", errors="replace").strip() if proc.stderr else ""
+                err_msg = stderr_str or f"Código de saída: {proc.returncode}"
                 return ConversionResult(
                     input_path=input_file,
                     output_path=None,

@@ -82,6 +82,18 @@ class TestJXLConverter(unittest.TestCase):
         self.assertIsNotNone(result.output_path)
         self.assertTrue(result.output_path.exists())
 
+    def test_webp_conversion(self):
+        webp_path = self.test_dir / "sample.webp"
+        img = Image.new("RGBA", (150, 150), color=(50, 180, 120, 255))
+        img.save(webp_path, "WEBP", quality=85)
+
+        config = ConversionConfig(quality_mode="lossless")
+        result = self.engine.convert_file(webp_path, self.test_dir, config)
+        self.assertEqual(result.status, "success")
+        self.assertIsNotNone(result.output_path)
+        self.assertTrue(result.output_path.exists())
+        self.assertGreater(result.converted_size, 0)
+
     def test_report_generation(self):
         jpg1 = self._create_sample_jpeg("a.jpg")
         jpg2 = self._create_sample_jpeg("b.jpg")
