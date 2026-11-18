@@ -1,0 +1,6 @@
+# JXL Batch Converter Dependencies
+# O núcleo da aplicação usa bibliotecas padrão do Python (tkinter, urllib, subprocess)
+# e o binário estático oficial libjxl (cjxl).
+
+# Dependências adicionais e testes:
+Pillow>=10.0.0
